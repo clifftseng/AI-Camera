@@ -13,8 +13,8 @@ android {
         // 相簿存取才能不要任何儲存權限
         minSdk = 29
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.6.0"
+        versionCode = 10
+        versionName = "0.6.1"
 
         // MediaPipe 原生庫很肥，只留 arm64（近年 Android 手機都是）
         ndk {

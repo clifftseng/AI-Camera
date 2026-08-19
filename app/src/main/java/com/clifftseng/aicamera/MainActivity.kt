@@ -5,6 +5,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Outline
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -14,6 +15,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Size
+import android.view.Surface
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.widget.ImageButton
@@ -45,7 +47,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var btnGallery: ImageButton
     private lateinit var txtPoseName: TextView
     private var imageCapture: ImageCapture? = null
+    private var imageAnalysis: ImageAnalysis? = null
     private var lensFacing = CameraSelector.LENS_FACING_BACK
+
+    /** 目前螢幕方向（0/90/180/270），給水平儀補償與 targetRotation 用 */
+    private var displayRotationDeg = 0
 
     private lateinit var analysisExecutor: ExecutorService
     private var poseAnalyzer: PoseAnalyzer? = null
@@ -189,10 +195,31 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
+        refreshDisplayRotation()
         accelerometer?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
         if (framingAdvisor != null || lutEngine != null) aiHandler.postDelayed(aiTick, 2000)
+    }
+
+    /** 轉向由 configChanges 自己接手：更新各 use case 的 targetRotation 與水平儀補償 */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshDisplayRotation()
+        overlayView.resetTracking() // view 長寬對調，舊的追蹤座標全部失效
+    }
+
+    private fun refreshDisplayRotation() {
+        @Suppress("DEPRECATION")
+        val rotation = windowManager.defaultDisplay.rotation
+        displayRotationDeg = when (rotation) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+        imageCapture?.targetRotation = rotation
+        imageAnalysis?.targetRotation = rotation
     }
 
     override fun onPause() {
@@ -245,6 +272,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .build()
+            imageAnalysis = analysis
             poseAnalyzer?.let { analyzer ->
                 analyzer.mirror = lensFacing == CameraSelector.LENS_FACING_FRONT
                 analysis.setAnalyzer(analysisExecutor, analyzer)
@@ -472,8 +500,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val alpha = 0.15f
         gx += alpha * (event.values[0] - gx)
         gy += alpha * (event.values[1] - gy)
-        // 直立拿手機時 x≈0、y≈g；順時針傾斜為正
-        overlayView.rollDegrees = Math.toDegrees(atan2(gx.toDouble(), gy.toDouble())).toFloat()
+        // 感測器算出的是「相對手機自然方向」的傾角（直立時 x≈0、y≈g；順時針為正），
+        // 橫拿時要加上螢幕方向補償，水平儀才會以目前的畫面方向為準
+        var roll = Math.toDegrees(atan2(gx.toDouble(), gy.toDouble())).toFloat() + displayRotationDeg
+        if (roll > 180f) roll -= 360f
+        if (roll < -180f) roll += 360f
+        overlayView.rollDegrees = roll
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
