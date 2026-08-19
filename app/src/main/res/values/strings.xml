@@ -38,4 +38,10 @@
     <string name="ai_dir_down">・鏡頭放低一點更好</string>
     <string name="ai_dir_closer">・靠近一點更好</string>
     <string name="ai_dir_stay"> ✓</string>
+    <string name="btn_guide_mode">切換引導模式</string>
+    <string name="guide_mode_camera">移鏡頭模式：人不動，箭頭引導你調整取景</string>
+    <string name="guide_mode_subject">移人模式：取景不動，請人走進虛線裡</string>
+    <string name="msg_color_unsupported">此裝置不支援即時色彩，已停用色彩功能</string>
+    <string name="msg_color_preview_only">此裝置拍照不支援色彩效果：預覽有色、成品為原色</string>
+    <string name="msg_color_pipeline_error">即時色彩管線發生錯誤，已停用</string>
 </resources>

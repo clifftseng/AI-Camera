@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     // ── 色彩風格 ──
     private lateinit var txtColorName: TextView
     private var media3Effect: Media3Effect? = null
+    private var colorSupported = true       // 綁定失敗會降級成 false，並明確告知使用者
     private var colorMode = ColorMode.AUTO
     private var appliedLook = ColorMode.OFF   // AUTO 模式下實際套用的風格
     private var candidateLook: ColorMode? = null
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             startCamera()
         }
         findViewById<ImageButton>(R.id.btnPose).setOnClickListener { cyclePose() }
+        findViewById<ImageButton>(R.id.btnGuideMode).setOnClickListener { toggleGuideMode() }
 
         // 圓形縮圖
         btnGallery.outlineProvider = object : ViewOutlineProvider() {
@@ -143,14 +145,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         txtColorName = findViewById(R.id.txtColorName)
         findViewById<ImageButton>(R.id.btnColor).setOnClickListener { cycleColorMode() }
-        // Media3 GPU 效果：同一組色彩效果套在預覽與拍照輸出
-        media3Effect = runCatching {
-            Media3Effect(
-                this,
-                CameraEffect.PREVIEW or CameraEffect.IMAGE_CAPTURE,
-                ContextCompat.getMainExecutor(this),
-            ) { /* effect pipeline error：忽略，畫面退回原色 */ }
-        }.getOrNull()
         updateColorLabel()
 
         analysisExecutor = Executors.newSingleThreadExecutor()
@@ -279,24 +273,60 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }
 
             val selector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
-            provider.unbindAll()
             val capture = imageCapture!!
-            val bound = runCatching {
-                val group = UseCaseGroup.Builder()
-                    .addUseCase(preview)
-                    .addUseCase(capture)
-                    .addUseCase(analysis)
-                    .apply { media3Effect?.let { addEffect(it) } }
-                    .build()
-                provider.bindToLifecycle(this, selector, group)
-            }.isSuccess
+
+            fun bindWithEffect(targets: Int): Boolean {
+                val effect = runCatching {
+                    Media3Effect(this, targets, ContextCompat.getMainExecutor(this)) {
+                        runOnUiThread { onColorPipelineError() }
+                    }
+                }.getOrNull() ?: return false
+                return runCatching {
+                    provider.unbindAll()
+                    val group = UseCaseGroup.Builder()
+                        .addUseCase(preview).addUseCase(capture).addUseCase(analysis)
+                        .addEffect(effect)
+                        .build()
+                    provider.bindToLifecycle(this, selector, group)
+                }.onSuccess { media3Effect = effect }.isSuccess
+            }
+
+            // 分級降級：預覽＋拍照都有色彩 → 只有預覽有 → 完全沒有（都要讓使用者知道）
+            var bound = false
+            if (colorSupported) {
+                bound = bindWithEffect(CameraEffect.PREVIEW or CameraEffect.IMAGE_CAPTURE)
+                if (!bound && bindWithEffect(CameraEffect.PREVIEW)) {
+                    bound = true
+                    Toast.makeText(this, R.string.msg_color_preview_only, Toast.LENGTH_LONG).show()
+                }
+            }
             if (!bound) {
-                // 這台機器不支援效果 pipeline：退回無色彩風格模式
-                media3Effect = null
                 provider.unbindAll()
                 provider.bindToLifecycle(this, selector, preview, capture, analysis)
+                if (colorSupported) disableColor(R.string.msg_color_unsupported)
+            } else {
+                // 重新綁定後 effect 是新實例，把目前的色彩狀態套回去
+                when {
+                    colorMode == ColorMode.AI -> {
+                        lastLutWeights = null
+                        updateAiColor()
+                    }
+                    appliedLook != ColorMode.OFF -> applyLook(appliedLook)
+                }
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun onColorPipelineError() {
+        if (colorSupported) disableColor(R.string.msg_color_pipeline_error)
+    }
+
+    private fun disableColor(msgRes: Int) {
+        colorSupported = false
+        media3Effect = null
+        findViewById<ImageButton>(R.id.btnColor).visibility = View.GONE
+        txtColorName.visibility = View.GONE
+        Toast.makeText(this, msgRes, Toast.LENGTH_LONG).show()
     }
 
     // ── 色彩風格 ──
@@ -424,6 +454,30 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private val hidePoseName = Runnable { txtPoseName.visibility = View.GONE }
+
+    private fun toggleGuideMode() {
+        val newMode = if (overlayView.guideMode == OverlayView.GuideMode.MOVE_CAMERA) {
+            OverlayView.GuideMode.MOVE_SUBJECT
+        } else {
+            OverlayView.GuideMode.MOVE_CAMERA
+        }
+        overlayView.guideMode = newMode
+        // 移人模式沒有虛線人形就沒東西可對齊：自動開第一個姿勢
+        if (newMode == OverlayView.GuideMode.MOVE_SUBJECT && poseIndex < 0) {
+            poseIndex = 0
+            overlayView.guidePose = PoseLibrary.POSES[0]
+        }
+        txtPoseName.setText(
+            if (newMode == OverlayView.GuideMode.MOVE_SUBJECT) {
+                R.string.guide_mode_subject
+            } else {
+                R.string.guide_mode_camera
+            },
+        )
+        txtPoseName.visibility = View.VISIBLE
+        txtPoseName.removeCallbacks(hidePoseName)
+        txtPoseName.postDelayed(hidePoseName, 2500)
+    }
 
     private fun takePhoto() {
         val capture = imageCapture ?: return

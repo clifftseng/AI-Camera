@@ -87,6 +87,18 @@
         android:contentDescription="@string/btn_pose"
         android:src="@drawable/ic_pose" />
 
+    <!-- 引導模式切換：移鏡頭（虛線跟人）↔ 移人（虛線標出最佳位置） -->
+    <ImageButton
+        android:id="@+id/btnGuideMode"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="108dp"
+        android:layout_marginEnd="24dp"
+        android:background="#40000000"
+        android:contentDescription="@string/btn_guide_mode"
+        android:src="@drawable/ic_guide_mode" />
+
     <TextView
         android:id="@+id/txtPoseName"
         android:layout_width="wrap_content"

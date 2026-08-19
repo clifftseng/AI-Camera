@@ -41,6 +41,24 @@ class OverlayView @JvmOverloads constructor(
             invalidate()
         }
 
+    enum class GuideMode {
+        /** 移鏡頭：人不動，虛線人形貼著人畫，構圖箭頭引導拿相機的人 */
+        MOVE_CAMERA,
+
+        /** 移人：取景不動，虛線人形畫在畫面最佳位置，請被拍的人走進去 */
+        MOVE_SUBJECT,
+    }
+
+    var guideMode: GuideMode = GuideMode.MOVE_CAMERA
+        set(value) {
+            field = value
+            subjectAnchorLeft = null
+            invalidate()
+        }
+
+    /** 移人模式選定的三分線（左/右），帶遲滯避免人跨過中線時目標跳來跳去 */
+    private var subjectAnchorLeft: Boolean? = null
+
     // 跨幀追蹤＋主體判定（路人過濾、點擊鎖定）
     private val tracker = SubjectTracker()
     private var subjects: List<SubjectTracker.Track> = emptyList()
@@ -265,14 +283,33 @@ class OverlayView @JvmOverloads constructor(
         val targetH: Float
         val centerX: Float
         val bottomY: Float
+        var aligned = false
         if (personBox != null) {
             targetH = (personBox[3] - personBox[1]).coerceAtLeast(h * 0.2f)
-            centerX = (personBox[0] + personBox[2]) / 2f
             bottomY = personBox[3]
+            val personCx = (personBox[0] + personBox[2]) / 2f
+            if (guideMode == GuideMode.MOVE_SUBJECT) {
+                // 移人模式：目標放最近的三分線（帶遲滯），同深度同身高，等人走進來
+                when {
+                    subjectAnchorLeft == null -> subjectAnchorLeft = personCx < w / 2f
+                    subjectAnchorLeft == true && personCx > w * 0.58f -> subjectAnchorLeft = false
+                    subjectAnchorLeft == false && personCx < w * 0.42f -> subjectAnchorLeft = true
+                }
+                centerX = if (subjectAnchorLeft == true) w / 3f else w * 2f / 3f
+                aligned = kotlin.math.abs(personCx - centerX) < w * 0.04f
+            } else {
+                centerX = personCx
+            }
         } else {
             targetH = h * 0.6f
             centerX = w / 2f
             bottomY = h / 2f + targetH / 2f
+        }
+        // 移人模式下人走進虛線就變綠
+        ghostPaint.color = if (aligned) {
+            Color.argb(235, 105, 240, 130)
+        } else {
+            Color.argb(235, 102, 217, 255)
         }
         val s = targetH / poseH
         fun gx(i: Int) = centerX + (pose.points[i].first - (pMinX + pMaxX) / 2f) * s
