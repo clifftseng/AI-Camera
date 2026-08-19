@@ -43,11 +43,15 @@
 - 不支援效果 pipeline 的機器自動退回原色（防禦性 fallback）
 - 註：目前用 RGB/HSL/對比參數式調色而非 3D LUT；真正的 adaptive 3D LUT 在 v0.6
 
-## v0.5 — AI 構圖模型
+## v0.5 — AI 構圖模型 ✅
 
-- GAIC 式取景推薦模型轉 TFLite：對候選取景框打分
-- 最佳框位置 → 轉成移動／縮放引導
-- 資料集：GAICD（fine-tune 用，不自行收集）
+- NIMA（MobileNet aesthetic，idealo 在 AVA 25 萬張人評照片上的預訓練權重）
+  轉 float16 TFLite（6.4MB，轉換腳本在 `tools/convert_nima.py`），內建於 assets
+- 「取景推薦」形態：對目前取景與 5 個候選（左/右/上/下偏移、拉近）各打美感分數，
+  候選贏過現況 ≥0.12 分才建議方向——純風景（沒有人）也有效
+- 每 2 秒背景跑一輪（6 次推論），畫面下方顯示「AI 美感 X.X・往左移一點更好」
+- 已知怪癖：NIMA 對高頻紋理偏好偏高；只用於同場景候選框相對比較，不受影響
+- GAIC 專用裁切模型（更準的位置建議）留待未來，需要自訓轉換（RoIAlign 客製 op）
 
 ## v0.6 — AI 色彩模型
 

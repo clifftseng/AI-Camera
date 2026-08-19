@@ -15,10 +15,11 @@
 | 功能 | 技術 |
 |---|---|
 | 相機 | CameraX |
-| 姿勢偵測 | MediaPipe Pose Landmarker（33 點骨架） |
-| 構圖引導 | 規則引擎（三分線／留白）→ GAIC 式取景推薦模型（TFLite） |
-| 色彩 | GPU LUT → image-adaptive 3D LUT 模型 |
-| 場景路由 | 場景分類（人像／風景）決定用哪套規則與姿勢庫 |
+| 姿勢偵測 | MediaPipe Pose Landmarker（33 點骨架、多人） |
+| 主體判定 | 跨幀追蹤＋綜合分數（大小/停留/朝向/位置），可點擊鎖定 |
+| 構圖引導 | 規則引擎（三分線／留白／不切關節）＋ NIMA 候選取景評分 |
+| AI 美學 | NIMA MobileNet（TFLite，AVA 資料集預訓練）on-device |
+| 色彩 | CameraX + Media3 GPU 效果，預覽與成品同步套用；場景自動選風格 |
 
 詳細分期見 [docs/ROADMAP.md](docs/ROADMAP.md)。
 

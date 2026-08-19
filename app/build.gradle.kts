@@ -13,8 +13,8 @@ android {
         // 相簿存取才能不要任何儲存權限
         minSdk = 29
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.4.0"
+        versionCode = 7
+        versionName = "0.5.0"
 
         // MediaPipe 原生庫很肥，只留 arm64（近年 Android 手機都是）
         ndk {
@@ -52,4 +52,7 @@ dependencies {
     // 色彩風格：CameraX + Media3 GPU 效果，同一組效果套在預覽與拍照輸出
     implementation("androidx.camera.media3:media3-effect:1.0.0-alpha04")
     implementation("androidx.media3:media3-effect:1.6.0")
+
+    // NIMA 美學評分模型（assets/nima_aesthetic.tflite）
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 }

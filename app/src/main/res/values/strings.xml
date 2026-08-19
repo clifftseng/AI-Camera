@@ -30,4 +30,11 @@
     <string name="color_mono">黑白</string>
     <string name="color_off">原色</string>
     <string name="color_auto_prefix">自動・</string>
+    <string name="ai_score_fmt">AI 美感 %.1f</string>
+    <string name="ai_dir_left">・往左移一點更好</string>
+    <string name="ai_dir_right">・往右移一點更好</string>
+    <string name="ai_dir_up">・鏡頭抬高一點更好</string>
+    <string name="ai_dir_down">・鏡頭放低一點更好</string>
+    <string name="ai_dir_closer">・靠近一點更好</string>
+    <string name="ai_dir_stay"> ✓</string>
 </resources>

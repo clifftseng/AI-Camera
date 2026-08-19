@@ -66,6 +66,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     @Volatile
     private var lastLuma = 0.5f
 
+    // ── AI 取景建議（NIMA）──
+    private lateinit var txtAiScore: TextView
+    private var framingAdvisor: FramingAdvisor? = null
+    private var aiExecutor: ExecutorService? = null
+    private var aiBusy = false
+    private val aiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val aiTick = object : Runnable {
+        override fun run() {
+            scoreCurrentFraming()
+            aiHandler.postDelayed(this, 2000)
+        }
+    }
+
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
 
@@ -137,6 +150,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             onLuma = { lastLuma = it },
         )
 
+        // AI 取景建議：模型載入失敗（例如 assets 缺檔）就整組停用，App 照常運作
+        txtAiScore = findViewById(R.id.txtAiScore)
+        runCatching { AestheticScorer(this) }.onSuccess { scorer ->
+            framingAdvisor = FramingAdvisor(scorer)
+            aiExecutor = Executors.newSingleThreadExecutor()
+        }
+
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
@@ -156,17 +176,40 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         accelerometer?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
+        if (framingAdvisor != null) aiHandler.postDelayed(aiTick, 2000)
     }
 
     override fun onPause() {
         super.onPause()
         sensorManager.unregisterListener(this)
+        aiHandler.removeCallbacks(aiTick)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         poseAnalyzer?.close()
         analysisExecutor.shutdown()
+        aiExecutor?.shutdown()
+    }
+
+    /** 每 2 秒抓最新影格，背景算美感分數與取景建議 */
+    private fun scoreCurrentFraming() {
+        val advisor = framingAdvisor ?: return
+        val frame = poseAnalyzer?.latestFrame ?: return
+        if (aiBusy) return
+        aiBusy = true
+        aiExecutor?.execute {
+            val result = runCatching { advisor.analyze(frame) }.getOrNull()
+            runOnUiThread {
+                aiBusy = false
+                if (result != null) {
+                    txtAiScore.visibility = android.view.View.VISIBLE
+                    txtAiScore.text =
+                        getString(R.string.ai_score_fmt).format(result.currentScore) +
+                        getString(result.direction.textRes)
+                }
+            }
+        }
     }
 
     private fun startCamera() {

@@ -29,6 +29,11 @@ class PoseAnalyzer(
     @Volatile
     var mirror: Boolean = false
 
+    /** 最近一張轉正後的影格，給 AI 取景建議（NIMA）取樣用 */
+    @Volatile
+    var latestFrame: Bitmap? = null
+        private set
+
     private val landmarker: PoseLandmarker
 
     init {
@@ -68,6 +73,7 @@ class PoseAnalyzer(
                 if (mirror) postScale(-1f, 1f, proxy.width / 2f, proxy.height / 2f)
             }
             val upright = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
+            latestFrame = upright
 
             landmarker.detectAsync(BitmapImageBuilder(upright).build(), SystemClock.uptimeMillis())
         }

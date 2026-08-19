@@ -15,6 +15,20 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- AI 美感分數與取景建議（NIMA），每 2 秒更新 -->
+    <TextView
+        android:id="@+id/txtAiScore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="132dp"
+        android:background="#40000000"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="6dp"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
     <ImageButton
         android:id="@+id/btnShutter"
         android:layout_width="76dp"
