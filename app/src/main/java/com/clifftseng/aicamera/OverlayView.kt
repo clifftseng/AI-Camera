@@ -39,30 +39,51 @@ class OverlayView @JvmOverloads constructor(
             invalidate()
         }
 
-    // 已映射到 view 座標的偵測結果（每點 [x, y, visibility]）
-    private var mappedPts: List<FloatArray>? = null
+    // 已映射到 view 座標、且已過濾掉路人的主體們（每點 [x, y, visibility]）
+    private var subjects: List<List<FloatArray>> = emptyList()
     private val advisor = CompositionAdvisor()
     private var advice: CompositionAdvisor.Advice? = null
 
     /**
      * MediaPipe 結果進來：把正規化座標映到 view 座標（PreviewView 預設 FILL_CENTER
-     * 置中裁切，這裡用同一套縮放），再餵給構圖規則引擎。
+     * 置中裁切，這裡用同一套縮放），過濾路人後餵給構圖規則引擎。
+     *
+     * 路人過濾：拍攝主體一定離鏡頭比較近、在畫面裡比較大——只保留
+     * 「身高 ≥ 最高者 55% 且 ≥ 畫面高度 12%」的人，其餘視為背景路人，
+     * 不畫骨架、構圖規則也不理會。
      */
-    fun setDetectedPose(landmarks: List<FloatArray>?, imgW: Int, imgH: Int) {
+    fun setDetectedPose(persons: List<List<FloatArray>>, imgW: Int, imgH: Int) {
         val w = width.toFloat()
         val h = height.toFloat()
-        mappedPts = if (landmarks != null && imgW > 0 && imgH > 0 && w > 0 && h > 0) {
+        subjects = if (persons.isNotEmpty() && imgW > 0 && imgH > 0 && w > 0 && h > 0) {
             val scale = max(w / imgW, h / imgH)
             val dx = (w - imgW * scale) / 2f
             val dy = (h - imgH * scale) / 2f
-            landmarks.map {
-                floatArrayOf(it[0] * imgW * scale + dx, it[1] * imgH * scale + dy, it[2])
+            val mapped = persons.map { person ->
+                person.map {
+                    floatArrayOf(it[0] * imgW * scale + dx, it[1] * imgH * scale + dy, it[2])
+                }
+            }
+            val heights = mapped.map { personHeight(it) }
+            val tallest = heights.max()
+            mapped.filterIndexed { i, _ ->
+                heights[i] >= tallest * 0.55f && heights[i] >= h * 0.12f
             }
         } else {
-            null
+            emptyList()
         }
-        advice = advisor.update(mappedPts, w, h)
+        advice = advisor.update(subjects.ifEmpty { null }, w, h)
         invalidate()
+    }
+
+    private fun personHeight(pts: List<FloatArray>): Float {
+        var minY = Float.MAX_VALUE
+        var maxY = Float.MIN_VALUE
+        for (i in BODY_BBOX_POINTS) {
+            minY = min(minY, pts[i][1])
+            maxY = max(maxY, pts[i][1])
+        }
+        return maxY - minY
     }
 
     // 水平儀在 ±這個角度以內視為「已水平」，變綠
@@ -157,25 +178,31 @@ class OverlayView @JvmOverloads constructor(
         canvas.drawLine(0f, h * 2f / 3f, w, h * 2f / 3f, gridPaint)
     }
 
-    /** 畫偵測到的骨架；回傳人物在 view 座標的外框（沒偵測到人回 null）。 */
+    /** 畫所有主體的骨架；回傳「最大那位主體」的外框，給姿勢虛線人形錨定用。 */
     private fun drawDetectedSkeleton(canvas: Canvas): FloatArray? {
-        val pts = mappedPts ?: return null
-        if (pts.size < 33) return null
+        var largestBox: FloatArray? = null
+        var largestH = 0f
+        for (pts in subjects) {
+            if (pts.size < 33) continue
+            for ((a, b) in BODY_EDGES) {
+                canvas.drawLine(pts[a][0], pts[a][1], pts[b][0], pts[b][1], skeletonPaint)
+            }
+            for (i in BODY_JOINTS) {
+                canvas.drawCircle(pts[i][0], pts[i][1], 7f, jointPaint)
+            }
 
-        for ((a, b) in BODY_EDGES) {
-            canvas.drawLine(pts[a][0], pts[a][1], pts[b][0], pts[b][1], skeletonPaint)
+            var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+            var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
+            for (i in BODY_BBOX_POINTS) {
+                minX = min(minX, pts[i][0]); maxX = max(maxX, pts[i][0])
+                minY = min(minY, pts[i][1]); maxY = max(maxY, pts[i][1])
+            }
+            if (maxY - minY > largestH) {
+                largestH = maxY - minY
+                largestBox = floatArrayOf(minX, minY, maxX, maxY)
+            }
         }
-        for (i in BODY_JOINTS) {
-            canvas.drawCircle(pts[i][0], pts[i][1], 7f, jointPaint)
-        }
-
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-        var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
-        for (i in BODY_BBOX_POINTS) {
-            minX = min(minX, pts[i][0]); maxX = max(maxX, pts[i][0])
-            minY = min(minY, pts[i][1]); maxY = max(maxY, pts[i][1])
-        }
-        return floatArrayOf(minX, minY, maxX, maxY)
+        return largestBox
     }
 
     /** 推薦姿勢虛線人形：有人就貼齊人物外框，沒人就放畫面中央。 */
