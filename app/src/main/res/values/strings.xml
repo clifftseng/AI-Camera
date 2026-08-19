@@ -19,4 +19,6 @@
     <string name="advice_headroom">頭上空白有點多——鏡頭放低一點</string>
     <string name="advice_eye_line">眼睛對到上三分線會更好看</string>
     <string name="advice_good">構圖 ✓</string>
+    <string name="msg_subject_locked">已鎖定主體（再點一下解除）</string>
+    <string name="msg_subject_unlocked">已解除鎖定</string>
 </resources>

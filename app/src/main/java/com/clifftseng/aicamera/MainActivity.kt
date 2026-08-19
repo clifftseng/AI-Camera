@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             } else {
                 CameraSelector.LENS_FACING_BACK
             }
+            overlayView.resetTracking()
             startCamera()
         }
         findViewById<ImageButton>(R.id.btnPose).setOnClickListener { cyclePose() }

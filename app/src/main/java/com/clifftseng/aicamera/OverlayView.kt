@@ -8,7 +8,9 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.view.MotionEvent
 import android.view.View
+import android.widget.Toast
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -39,18 +41,15 @@ class OverlayView @JvmOverloads constructor(
             invalidate()
         }
 
-    // 已映射到 view 座標、且已過濾掉路人的主體們（每點 [x, y, visibility]）
-    private var subjects: List<List<FloatArray>> = emptyList()
+    // 跨幀追蹤＋主體判定（路人過濾、點擊鎖定）
+    private val tracker = SubjectTracker()
+    private var subjects: List<SubjectTracker.Track> = emptyList()
     private val advisor = CompositionAdvisor()
     private var advice: CompositionAdvisor.Advice? = null
 
     /**
      * MediaPipe 結果進來：把正規化座標映到 view 座標（PreviewView 預設 FILL_CENTER
-     * 置中裁切，這裡用同一套縮放），過濾路人後餵給構圖規則引擎。
-     *
-     * 路人過濾：拍攝主體一定離鏡頭比較近、在畫面裡比較大——只保留
-     * 「身高 ≥ 最高者 55% 且 ≥ 畫面高度 12%」的人，其餘視為背景路人，
-     * 不畫骨架、構圖規則也不理會。
+     * 置中裁切，這裡用同一套縮放），交給 SubjectTracker 判定主體後餵構圖規則引擎。
      */
     fun setDetectedPose(persons: List<List<FloatArray>>, imgW: Int, imgH: Int) {
         val w = width.toFloat()
@@ -64,27 +63,55 @@ class OverlayView @JvmOverloads constructor(
                     floatArrayOf(it[0] * imgW * scale + dx, it[1] * imgH * scale + dy, it[2])
                 }
             }
-            val heights = mapped.map { personHeight(it) }
-            val tallest = heights.max()
-            mapped.filterIndexed { i, _ ->
-                heights[i] >= tallest * 0.55f && heights[i] >= h * 0.12f
-            }
+            tracker.update(mapped, w, h)
         } else {
-            emptyList()
+            tracker.update(emptyList(), w, h)
         }
-        advice = advisor.update(subjects.ifEmpty { null }, w, h)
+        advice = advisor.update(subjects.map { it.pts }.ifEmpty { null }, w, h)
         invalidate()
     }
 
-    private fun personHeight(pts: List<FloatArray>): Float {
-        var minY = Float.MAX_VALUE
-        var maxY = Float.MIN_VALUE
-        for (i in BODY_BBOX_POINTS) {
-            minY = min(minY, pts[i][1])
-            maxY = max(maxY, pts[i][1])
-        }
-        return maxY - minY
+    /** 切換鏡頭時呼叫：舊的追蹤全部作廢 */
+    fun resetTracking() {
+        tracker.reset()
+        subjects = emptyList()
+        invalidate()
     }
+
+    /** 點擊：點到人 → 鎖定為主體；再點同一人或點空白 → 解除 */
+    @Suppress("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                touchDownX = event.x
+                touchDownY = event.y
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                val moved = hypot(
+                    (event.x - touchDownX).toDouble(),
+                    (event.y - touchDownY).toDouble(),
+                ).toFloat()
+                if (moved < 40f) {
+                    when (tracker.toggleLockAt(event.x, event.y)) {
+                        true -> Toast.makeText(
+                            context, R.string.msg_subject_locked, Toast.LENGTH_SHORT,
+                        ).show()
+                        false -> Toast.makeText(
+                            context, R.string.msg_subject_unlocked, Toast.LENGTH_SHORT,
+                        ).show()
+                        null -> Unit
+                    }
+                    invalidate()
+                }
+                return true
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
+    private var touchDownX = 0f
+    private var touchDownY = 0f
 
     // 水平儀在 ±這個角度以內視為「已水平」，變綠
     private val levelToleranceDeg = 1.5f
@@ -127,6 +154,13 @@ class OverlayView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         pathEffect = DashPathEffect(floatArrayOf(22f, 16f), 0f)
+    }
+
+    private val lockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(240, 102, 217, 255)
+        strokeWidth = 6f
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
     }
 
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -178,31 +212,42 @@ class OverlayView @JvmOverloads constructor(
         canvas.drawLine(0f, h * 2f / 3f, w, h * 2f / 3f, gridPaint)
     }
 
-    /** 畫所有主體的骨架；回傳「最大那位主體」的外框，給姿勢虛線人形錨定用。 */
+    /** 畫所有主體的骨架與鎖定框；回傳姿勢虛線人形的錨定外框（鎖定者優先，否則最大主體）。 */
     private fun drawDetectedSkeleton(canvas: Canvas): FloatArray? {
-        var largestBox: FloatArray? = null
-        var largestH = 0f
-        for (pts in subjects) {
-            if (pts.size < 33) continue
+        var anchorBox: FloatArray? = null
+        var anchorH = 0f
+        for (t in subjects) {
+            val pts = t.pts
             for ((a, b) in BODY_EDGES) {
                 canvas.drawLine(pts[a][0], pts[a][1], pts[b][0], pts[b][1], skeletonPaint)
             }
             for (i in BODY_JOINTS) {
                 canvas.drawCircle(pts[i][0], pts[i][1], 7f, jointPaint)
             }
-
-            var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-            var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
-            for (i in BODY_BBOX_POINTS) {
-                minX = min(minX, pts[i][0]); maxX = max(maxX, pts[i][0])
-                minY = min(minY, pts[i][1]); maxY = max(maxY, pts[i][1])
-            }
-            if (maxY - minY > largestH) {
-                largestH = maxY - minY
-                largestBox = floatArrayOf(minX, minY, maxX, maxY)
+            if (t.height > anchorH) {
+                anchorH = t.height
+                anchorBox = t.bbox
             }
         }
-        return largestBox
+
+        // 鎖定框：四個角的青色括號
+        tracker.lockedTrack()?.let { locked ->
+            drawLockBrackets(canvas, locked.bbox)
+            anchorBox = locked.bbox
+        }
+        return anchorBox
+    }
+
+    private fun drawLockBrackets(canvas: Canvas, b: FloatArray) {
+        val m = (b[3] - b[1]) * 0.06f
+        val l = b[0] - m; val t = b[1] - m; val r = b[2] + m; val btm = b[3] + m
+        val seg = min(r - l, btm - t) * 0.22f
+        val p = lockPaint
+        // 左上、右上、左下、右下
+        canvas.drawLine(l, t, l + seg, t, p); canvas.drawLine(l, t, l, t + seg, p)
+        canvas.drawLine(r, t, r - seg, t, p); canvas.drawLine(r, t, r, t + seg, p)
+        canvas.drawLine(l, btm, l + seg, btm, p); canvas.drawLine(l, btm, l, btm - seg, p)
+        canvas.drawLine(r, btm, r - seg, btm, p); canvas.drawLine(r, btm, r, btm - seg, p)
     }
 
     /** 推薦姿勢虛線人形：有人就貼齊人物外框，沒人就放畫面中央。 */
