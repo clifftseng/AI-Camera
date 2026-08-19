@@ -19,7 +19,7 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
  */
 class PoseAnalyzer(
     context: Context,
-    private val onResult: (landmarks: List<Pair<Float, Float>>?, imageWidth: Int, imageHeight: Int) -> Unit,
+    private val onResult: (landmarks: List<FloatArray>?, imageWidth: Int, imageHeight: Int) -> Unit,
 ) : ImageAnalysis.Analyzer {
 
     /** 前鏡頭要鏡像，讓座標跟預覽畫面一致；由 MainActivity 依鏡頭方向設定 */
@@ -38,7 +38,8 @@ class PoseAnalyzer(
             .setNumPoses(1)
             .setResultListener { result: PoseLandmarkerResult, input ->
                 val first = result.landmarks().firstOrNull()
-                val points = first?.map { it.x() to it.y() }
+                // 每點 [x, y, visibility]，構圖規則要靠 visibility 判斷肢體有沒有入鏡
+                val points = first?.map { floatArrayOf(it.x(), it.y(), it.visibility().orElse(1f)) }
                 onResult(points, input.width, input.height)
             }
             .setErrorListener { e -> Log.e(TAG, "pose landmarker error", e) }

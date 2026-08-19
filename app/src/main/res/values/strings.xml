@@ -13,4 +13,10 @@
     <string name="pose_hand_on_hip">單手叉腰</string>
     <string name="pose_arms_up">雙手舉V</string>
     <string name="pose_lean">側身斜倚</string>
+    <string name="advice_head_cut">別切到頭——退後一點或鏡頭抬高</string>
+    <string name="advice_leg_cut">切在小腿不好看——退後把腳拍進來，或靠近取半身</string>
+    <string name="advice_move_to_third">把人帶到三分線上</string>
+    <string name="advice_headroom">頭上空白有點多——鏡頭放低一點</string>
+    <string name="advice_eye_line">眼睛對到上三分線會更好看</string>
+    <string name="advice_good">構圖 ✓</string>
 </resources>

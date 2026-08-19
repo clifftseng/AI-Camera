@@ -5,15 +5,20 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
- * 取景輔助層：三分構圖虛線、水平儀、偵測到的人體骨架、推薦姿勢虛線人形。
+ * 取景輔助層：三分構圖虛線、水平儀、偵測到的人體骨架、推薦姿勢虛線人形、構圖引導提示。
  */
 class OverlayView @JvmOverloads constructor(
     context: Context,
@@ -34,15 +39,29 @@ class OverlayView @JvmOverloads constructor(
             invalidate()
         }
 
-    // MediaPipe 偵測結果（正規化座標）與其影像尺寸
-    private var detected: List<Pair<Float, Float>>? = null
-    private var imageWidth = 1
-    private var imageHeight = 1
+    // 已映射到 view 座標的偵測結果（每點 [x, y, visibility]）
+    private var mappedPts: List<FloatArray>? = null
+    private val advisor = CompositionAdvisor()
+    private var advice: CompositionAdvisor.Advice? = null
 
-    fun setDetectedPose(landmarks: List<Pair<Float, Float>>?, imgW: Int, imgH: Int) {
-        detected = landmarks
-        imageWidth = max(1, imgW)
-        imageHeight = max(1, imgH)
+    /**
+     * MediaPipe 結果進來：把正規化座標映到 view 座標（PreviewView 預設 FILL_CENTER
+     * 置中裁切，這裡用同一套縮放），再餵給構圖規則引擎。
+     */
+    fun setDetectedPose(landmarks: List<FloatArray>?, imgW: Int, imgH: Int) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        mappedPts = if (landmarks != null && imgW > 0 && imgH > 0 && w > 0 && h > 0) {
+            val scale = max(w / imgW, h / imgH)
+            val dx = (w - imgW * scale) / 2f
+            val dy = (h - imgH * scale) / 2f
+            landmarks.map {
+                floatArrayOf(it[0] * imgW * scale + dx, it[1] * imgH * scale + dy, it[2])
+            }
+        } else {
+            null
+        }
+        advice = advisor.update(mappedPts, w, h)
         invalidate()
     }
 
@@ -89,6 +108,35 @@ class OverlayView @JvmOverloads constructor(
         pathEffect = DashPathEffect(floatArrayOf(22f, 16f), 0f)
     }
 
+    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(240, 255, 193, 7)
+        strokeWidth = 9f
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    private val arrowHeadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(240, 255, 193, 7)
+        style = Paint.Style.FILL
+    }
+
+    private val targetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(240, 255, 193, 7)
+        strokeWidth = 5f
+        style = Paint.Style.STROKE
+    }
+
+    private val adviceTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 42f
+        textAlign = Paint.Align.CENTER
+    }
+
+    private val adviceBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(170, 0, 0, 0)
+        style = Paint.Style.FILL
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val w = width.toFloat()
@@ -96,8 +144,9 @@ class OverlayView @JvmOverloads constructor(
         if (w <= 0 || h <= 0) return
 
         drawThirdsGrid(canvas, w, h)
-        val personBox = drawDetectedSkeleton(canvas, w, h)
+        val personBox = drawDetectedSkeleton(canvas)
         drawGhostPose(canvas, w, h, personBox)
+        drawAdvice(canvas, w, h)
         drawLevelIndicator(canvas, w, h)
     }
 
@@ -108,32 +157,23 @@ class OverlayView @JvmOverloads constructor(
         canvas.drawLine(0f, h * 2f / 3f, w, h * 2f / 3f, gridPaint)
     }
 
-    /**
-     * 畫偵測到的骨架；回傳人物在 view 座標的外框（沒偵測到人回 null）。
-     * PreviewView 預設 FILL_CENTER（置中裁切），這裡用同一套縮放把影像座標映到 view。
-     */
-    private fun drawDetectedSkeleton(canvas: Canvas, w: Float, h: Float): FloatArray? {
-        val pts = detected ?: return null
+    /** 畫偵測到的骨架；回傳人物在 view 座標的外框（沒偵測到人回 null）。 */
+    private fun drawDetectedSkeleton(canvas: Canvas): FloatArray? {
+        val pts = mappedPts ?: return null
         if (pts.size < 33) return null
 
-        val scale = max(w / imageWidth, h / imageHeight)
-        val dx = (w - imageWidth * scale) / 2f
-        val dy = (h - imageHeight * scale) / 2f
-        fun px(p: Pair<Float, Float>) = p.first * imageWidth * scale + dx
-        fun py(p: Pair<Float, Float>) = p.second * imageHeight * scale + dy
-
         for ((a, b) in BODY_EDGES) {
-            canvas.drawLine(px(pts[a]), py(pts[a]), px(pts[b]), py(pts[b]), skeletonPaint)
+            canvas.drawLine(pts[a][0], pts[a][1], pts[b][0], pts[b][1], skeletonPaint)
         }
         for (i in BODY_JOINTS) {
-            canvas.drawCircle(px(pts[i]), py(pts[i]), 7f, jointPaint)
+            canvas.drawCircle(pts[i][0], pts[i][1], 7f, jointPaint)
         }
 
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
         var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
         for (i in BODY_BBOX_POINTS) {
-            minX = min(minX, px(pts[i])); maxX = max(maxX, px(pts[i]))
-            minY = min(minY, py(pts[i])); maxY = max(maxY, py(pts[i]))
+            minX = min(minX, pts[i][0]); maxX = max(maxX, pts[i][0])
+            minY = min(minY, pts[i][1]); maxY = max(maxY, pts[i][1])
         }
         return floatArrayOf(minX, minY, maxX, maxY)
     }
@@ -148,10 +188,8 @@ class OverlayView @JvmOverloads constructor(
             pMinX = min(pMinX, x); pMaxX = max(pMaxX, x)
             pMinY = min(pMinY, y); pMaxY = max(pMaxY, y)
         }
-        val poseW = max(0.01f, pMaxX - pMinX)
         val poseH = max(0.01f, pMaxY - pMinY)
 
-        // 目標高度與中心：跟著人物走，或畫面中央 60% 高
         val targetH: Float
         val centerX: Float
         val bottomY: Float
@@ -171,12 +209,73 @@ class OverlayView @JvmOverloads constructor(
         for ((a, b) in PoseLibrary.EDGES) {
             canvas.drawLine(gx(a), gy(a), gx(b), gy(b), ghostPaint)
         }
-        // 頭：以頭頸距離抓一個圓
         val headR = hypot(
             (gx(PoseLibrary.HEAD) - gx(PoseLibrary.NECK)).toDouble(),
             (gy(PoseLibrary.HEAD) - gy(PoseLibrary.NECK)).toDouble(),
         ).toFloat() * 0.62f
         canvas.drawCircle(gx(PoseLibrary.HEAD), gy(PoseLibrary.HEAD), headR, ghostPaint)
+    }
+
+    /** 構圖引導：提示文字泡泡 + 引導箭頭 + 目標點 */
+    private fun drawAdvice(canvas: Canvas, w: Float, h: Float) {
+        val adv = advice ?: return
+        val good = adv.hint == CompositionAdvisor.Hint.GOOD
+
+        // 箭頭與目標圈
+        val from = adv.arrowFrom
+        val to = adv.arrowTo
+        if (from != null && to != null) {
+            drawArrow(canvas, from.x, from.y, to.x, to.y)
+            if (adv.hint == CompositionAdvisor.Hint.MOVE_TO_THIRD ||
+                adv.hint == CompositionAdvisor.Hint.EYE_LINE
+            ) {
+                canvas.drawCircle(to.x, to.y, 20f, targetPaint)
+            }
+        }
+
+        // 文字泡泡（構圖 OK 時縮小、變綠）
+        val text = context.getString(adv.hint.textRes)
+        adviceTextPaint.textSize = if (good) 36f else 42f
+        adviceBgPaint.color = if (good) Color.argb(170, 27, 94, 32) else Color.argb(170, 0, 0, 0)
+
+        val textW = adviceTextPaint.measureText(text)
+        val cx = w / 2f
+        val cy = h * 0.185f
+        val padX = 28f
+        val padY = 20f
+        val fm = adviceTextPaint.fontMetrics
+        val rect = RectF(
+            cx - textW / 2f - padX,
+            cy + fm.top - padY,
+            cx + textW / 2f + padX,
+            cy + fm.bottom + padY,
+        )
+        canvas.drawRoundRect(rect, 26f, 26f, adviceBgPaint)
+        canvas.drawText(text, cx, cy, adviceTextPaint)
+    }
+
+    private fun drawArrow(canvas: Canvas, x1: Float, y1: Float, x2: Float, y2: Float) {
+        val len = hypot((x2 - x1).toDouble(), (y2 - y1).toDouble()).toFloat()
+        if (len < 30f) return
+        val angle = atan2((y2 - y1).toDouble(), (x2 - x1).toDouble()).toFloat()
+        // 線留一點空間給箭頭頭部
+        val headLen = 34f
+        val ex = x2 - headLen * 0.6f * cos(angle)
+        val ey = y2 - headLen * 0.6f * sin(angle)
+        canvas.drawLine(x1, y1, ex, ey, arrowPaint)
+
+        val path = Path()
+        path.moveTo(x2, y2)
+        path.lineTo(
+            x2 - headLen * cos(angle - ARROW_SPREAD),
+            y2 - headLen * sin(angle - ARROW_SPREAD),
+        )
+        path.lineTo(
+            x2 - headLen * cos(angle + ARROW_SPREAD),
+            y2 - headLen * sin(angle + ARROW_SPREAD),
+        )
+        path.close()
+        canvas.drawPath(path, arrowHeadPaint)
     }
 
     private fun drawLevelIndicator(canvas: Canvas, w: Float, h: Float) {
@@ -203,6 +302,8 @@ class OverlayView @JvmOverloads constructor(
     }
 
     private companion object {
+        const val ARROW_SPREAD = 0.5f // 弧度，箭頭開角的一半
+
         /** MediaPipe 33 點模型的軀幹＋四肢連線（臉部細節不畫） */
         val BODY_EDGES = listOf(
             11 to 12, 11 to 13, 13 to 15, 12 to 14, 14 to 16,
