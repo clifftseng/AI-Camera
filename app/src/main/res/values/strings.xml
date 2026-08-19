@@ -23,6 +23,7 @@
     <string name="msg_subject_unlocked">已解除鎖定</string>
     <string name="btn_color">切換色彩風格</string>
     <string name="color_auto">自動</string>
+    <string name="color_ai">AI 調色</string>
     <string name="color_portrait">人像</string>
     <string name="color_landscape">風景</string>
     <string name="color_food">食物</string>

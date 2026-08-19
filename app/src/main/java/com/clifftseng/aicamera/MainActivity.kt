@@ -71,15 +71,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var appliedStats: FrameStats? = null
     private var adaptCounter = 0
 
-    // ── AI 取景建議（NIMA）──
+    // ── AI 取景建議（NIMA）＋ AI 調色（adaptive 3D LUT）──
     private lateinit var txtAiScore: TextView
     private var framingAdvisor: FramingAdvisor? = null
+    private var lutEngine: LutColorEngine? = null
+    private var lastLutWeights: FloatArray? = null
+    private var lutBusy = false
     private var aiExecutor: ExecutorService? = null
     private var aiBusy = false
     private val aiHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val aiTick = object : Runnable {
         override fun run() {
             scoreCurrentFraming()
+            updateAiColor()
             aiHandler.postDelayed(this, 2000)
         }
     }
@@ -163,6 +167,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         txtAiScore = findViewById(R.id.txtAiScore)
         runCatching { AestheticScorer(this) }.onSuccess { scorer ->
             framingAdvisor = FramingAdvisor(scorer)
+        }
+        lutEngine = runCatching { LutColorEngine(this) }.getOrNull()
+        if (framingAdvisor != null || lutEngine != null) {
             aiExecutor = Executors.newSingleThreadExecutor()
         }
 
@@ -185,7 +192,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         accelerometer?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
-        if (framingAdvisor != null) aiHandler.postDelayed(aiTick, 2000)
+        if (framingAdvisor != null || lutEngine != null) aiHandler.postDelayed(aiTick, 2000)
     }
 
     override fun onPause() {
@@ -199,6 +206,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         poseAnalyzer?.close()
         analysisExecutor.shutdown()
         aiExecutor?.shutdown()
+        lutEngine?.close()
     }
 
     /** 每 2 秒抓最新影格，背景算美感分數與取景建議 */
@@ -267,16 +275,55 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun cycleColorMode() {
         val modes = ColorMode.entries
-        colorMode = modes[(colorMode.ordinal + 1) % modes.size]
+        var next = modes[(colorMode.ordinal + 1) % modes.size]
+        // 引擎沒載成功就跳過 AI 調色
+        if (next == ColorMode.AI && lutEngine == null) {
+            next = modes[(next.ordinal + 1) % modes.size]
+        }
+        colorMode = next
         candidateLook = null
         lookStreak = 0
-        if (colorMode == ColorMode.AUTO) {
-            // 讓下一幀的自動判斷立刻重套
-            appliedLook = ColorMode.OFF
-        } else {
-            applyLook(colorMode)
+        when (colorMode) {
+            ColorMode.AUTO -> appliedLook = ColorMode.OFF // 讓下一幀的自動判斷立刻重套
+            ColorMode.AI -> {
+                appliedLook = ColorMode.AI
+                lastLutWeights = null // 強制重新預測
+                updateAiColor()
+            }
+            else -> applyLook(colorMode)
         }
         updateColorLabel()
+    }
+
+    /** AI 調色：預測這一幕的 LUT 權重，權重明顯變了才重建並套用 LUT */
+    private fun updateAiColor() {
+        if (colorMode != ColorMode.AI) return
+        val engine = lutEngine ?: return
+        val frame = poseAnalyzer?.latestFrame ?: return
+        if (lutBusy) return
+        lutBusy = true
+        aiExecutor?.execute {
+            val built = runCatching {
+                val w = engine.predictWeights(frame)
+                val old = lastLutWeights
+                val changed = old == null ||
+                    kotlin.math.abs(w[0] - old[0]) > 0.05f ||
+                    kotlin.math.abs(w[1] - old[1]) > 0.05f ||
+                    kotlin.math.abs(w[2] - old[2]) > 0.05f
+                if (changed) w to engine.buildCube(w) else null
+            }.getOrNull()
+            runOnUiThread {
+                lutBusy = false
+                if (built != null && colorMode == ColorMode.AI) {
+                    lastLutWeights = built.first
+                    media3Effect?.setEffects(
+                        listOf(
+                            androidx.media3.effect.SingleColorLut.createFromCube(built.second),
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     /** AUTO 模式：暗 → 夜景；有人 → 人像；否則風景。連續 30 幀（約 1–2 秒）才切換，避免跳動。 */
@@ -310,6 +357,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
      * 每 60 幀（約 2–4 秒）最多檢查一次，微小變化不動作，避免預覽閃爍。
      */
     private fun maybeReadapt() {
+        if (colorMode == ColorMode.AI) return
         if (appliedLook == ColorMode.OFF || media3Effect == null) return
         if (++adaptCounter < 60) return
         adaptCounter = 0

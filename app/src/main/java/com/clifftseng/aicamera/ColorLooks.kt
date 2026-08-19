@@ -15,6 +15,7 @@ import androidx.media3.effect.RgbAdjustment
  */
 enum class ColorMode(@StringRes val nameRes: Int) {
     AUTO(R.string.color_auto),
+    AI(R.string.color_ai),
     PORTRAIT(R.string.color_portrait),
     LANDSCAPE(R.string.color_landscape),
     FOOD(R.string.color_food),
@@ -49,7 +50,7 @@ object ColorLooks {
         ColorMode.FOOD -> Params(sat = 15f, contrast = 0.06f, red = 1.08f, green = 1.02f, blue = 0.90f)
         ColorMode.NIGHT -> Params(contrast = 0.12f, red = 0.97f, blue = 1.05f, brightness = 0.06f)
         ColorMode.MONO -> Params(sat = -100f, contrast = 0.12f)
-        ColorMode.AUTO, ColorMode.OFF -> Params()
+        ColorMode.AUTO, ColorMode.AI, ColorMode.OFF -> Params()
     }
 
     /**
@@ -84,7 +85,10 @@ object ColorLooks {
     @OptIn(UnstableApi::class)
     fun effectsFor(mode: ColorMode, stats: FrameStats? = null): List<Effect> {
         val p = base(mode)
-        if (mode == ColorMode.AUTO || mode == ColorMode.OFF) return emptyList()
+        // AI 調色由 LutColorEngine 走另一條路（SingleColorLut），不在這裡處理
+        if (mode == ColorMode.AUTO || mode == ColorMode.AI || mode == ColorMode.OFF) {
+            return emptyList()
+        }
         if (stats != null) adapt(p, stats)
 
         val fx = mutableListOf<Effect>()

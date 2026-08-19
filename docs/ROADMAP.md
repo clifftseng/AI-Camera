@@ -52,12 +52,19 @@
 - 每 2 秒背景跑一輪（6 次推論），畫面下方顯示「AI 美感 X.X・往左移一點更好」
 - 已知怪癖：NIMA 對高頻紋理偏好偏高；只用於同場景候選框相對比較，不受影響
 - GAIC 專用裁切模型（更準的位置建議）留待未來，需要自訓轉換（RoIAlign 客製 op）
+- v0.5.1：色彩統計自適應——每 15 幀抽樣亮度/飽和/對比/色溫，動態調各風格強度
+  （鮮豔場景少加飽和、已偏暖不再加暖、夜景提亮看實際暗度），統計明顯變化才重套
 
-## v0.6 — AI 色彩模型
+## v0.6 — AI 色彩模型 ✅
 
-- Image-adaptive 3D LUT 模型（Zeng et al.）取代固定 LUT
-- 模型即時依畫面內容生成 LUT
-- fine-tune 資料集候選：PPR10K（人像）、AVA（美學）
+- Image-Adaptive 3D LUT（Zeng et al. TPAMI 2020，sRGB paired 預訓練，FiveK 資料集）
+- 拆成兩半上機：權重預測 CNN → float16 TFLite（0.56MB，Keras 手工移植，
+  與 PyTorch 參考輸出差 <1e-3）；3 個基底 LUT → `luts_basis.bin`（1.3MB）
+- 轉換腳本 `tools/convert_lut3d.py`（含與 torch 的自動比對驗證）
+- App 端：CNN 每 2 秒預測 3 個混合權重 → CPU 混出 33³ LUT →
+  Media3 `SingleColorLut` 套用（預覽＋成品同步）；權重變化 >0.05 才重建
+- 色彩模式新增「AI 調色」（自動 → AI 調色 → 人像 → …）
+- fine-tune 資料集候選（未做）：PPR10K（人像）、AVA（美學）
 
 ## 設計原則
 
