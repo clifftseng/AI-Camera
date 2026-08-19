@@ -21,4 +21,13 @@
     <string name="advice_good">構圖 ✓</string>
     <string name="msg_subject_locked">已鎖定主體（再點一下解除）</string>
     <string name="msg_subject_unlocked">已解除鎖定</string>
+    <string name="btn_color">切換色彩風格</string>
+    <string name="color_auto">自動</string>
+    <string name="color_portrait">人像</string>
+    <string name="color_landscape">風景</string>
+    <string name="color_food">食物</string>
+    <string name="color_night">夜景</string>
+    <string name="color_mono">黑白</string>
+    <string name="color_off">原色</string>
+    <string name="color_auto_prefix">自動・</string>
 </resources>

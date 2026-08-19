@@ -20,7 +20,10 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 class PoseAnalyzer(
     context: Context,
     private val onResult: (persons: List<List<FloatArray>>, imageWidth: Int, imageHeight: Int) -> Unit,
+    private val onLuma: (Float) -> Unit = {},
 ) : ImageAnalysis.Analyzer {
+
+    private var frameCount = 0
 
     /** 前鏡頭要鏡像，讓座標跟預覽畫面一致；由 MainActivity 依鏡頭方向設定 */
     @Volatile
@@ -55,6 +58,11 @@ class PoseAnalyzer(
             val raw = Bitmap.createBitmap(proxy.width, proxy.height, Bitmap.Config.ARGB_8888)
             raw.copyPixelsFromBuffer(proxy.planes[0].buffer)
 
+            // 每 15 幀抽樣一次平均亮度（0..1），給夜景自動判斷用
+            if (frameCount++ % 15 == 0) {
+                onLuma(averageLuma(raw))
+            }
+
             val matrix = Matrix().apply {
                 postRotate(proxy.imageInfo.rotationDegrees.toFloat())
                 if (mirror) postScale(-1f, 1f, proxy.width / 2f, proxy.height / 2f)
@@ -63,6 +71,25 @@ class PoseAnalyzer(
 
             landmarker.detectAsync(BitmapImageBuilder(upright).build(), SystemClock.uptimeMillis())
         }
+    }
+
+    private fun averageLuma(bitmap: Bitmap): Float {
+        var sum = 0L
+        var n = 0
+        val stepX = (bitmap.width / 20).coerceAtLeast(1)
+        val stepY = (bitmap.height / 20).coerceAtLeast(1)
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val c = bitmap.getPixel(x, y)
+                sum += ((c shr 16 and 0xFF) + (c shr 8 and 0xFF) + (c and 0xFF)) / 3
+                n++
+                x += stepX
+            }
+            y += stepY
+        }
+        return if (n == 0) 0.5f else sum.toFloat() / n / 255f
     }
 
     fun close() = landmarker.close()

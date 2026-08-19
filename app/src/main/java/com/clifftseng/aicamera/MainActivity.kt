@@ -21,12 +21,15 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraEffect
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.media3.effect.Media3Effect
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
@@ -51,6 +54,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var poseIndex = -1
 
     private var latestPhotoUri: Uri? = null
+
+    // ── 色彩風格 ──
+    private lateinit var txtColorName: TextView
+    private var media3Effect: Media3Effect? = null
+    private var colorMode = ColorMode.AUTO
+    private var appliedLook = ColorMode.OFF   // AUTO 模式下實際套用的風格
+    private var candidateLook: ColorMode? = null
+    private var lookStreak = 0
+
+    @Volatile
+    private var lastLuma = 0.5f
 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
@@ -99,10 +113,29 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         btnGallery.clipToOutline = true
         btnGallery.setOnClickListener { openLatestPhoto() }
 
+        txtColorName = findViewById(R.id.txtColorName)
+        findViewById<ImageButton>(R.id.btnColor).setOnClickListener { cycleColorMode() }
+        // Media3 GPU 效果：同一組色彩效果套在預覽與拍照輸出
+        media3Effect = runCatching {
+            Media3Effect(
+                this,
+                CameraEffect.PREVIEW or CameraEffect.IMAGE_CAPTURE,
+                ContextCompat.getMainExecutor(this),
+            ) { /* effect pipeline error：忽略，畫面退回原色 */ }
+        }.getOrNull()
+        updateColorLabel()
+
         analysisExecutor = Executors.newSingleThreadExecutor()
-        poseAnalyzer = PoseAnalyzer(this) { landmarks, imgW, imgH ->
-            runOnUiThread { overlayView.setDetectedPose(landmarks, imgW, imgH) }
-        }
+        poseAnalyzer = PoseAnalyzer(
+            this,
+            onResult = { landmarks, imgW, imgH ->
+                runOnUiThread {
+                    overlayView.setDetectedPose(landmarks, imgW, imgH)
+                    updateAutoLook(landmarks.isNotEmpty())
+                }
+            },
+            onLuma = { lastLuma = it },
+        )
 
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -159,8 +192,72 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
             val selector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
             provider.unbindAll()
-            provider.bindToLifecycle(this, selector, preview, imageCapture, analysis)
+            val capture = imageCapture!!
+            val bound = runCatching {
+                val group = UseCaseGroup.Builder()
+                    .addUseCase(preview)
+                    .addUseCase(capture)
+                    .addUseCase(analysis)
+                    .apply { media3Effect?.let { addEffect(it) } }
+                    .build()
+                provider.bindToLifecycle(this, selector, group)
+            }.isSuccess
+            if (!bound) {
+                // 這台機器不支援效果 pipeline：退回無色彩風格模式
+                media3Effect = null
+                provider.unbindAll()
+                provider.bindToLifecycle(this, selector, preview, capture, analysis)
+            }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    // ── 色彩風格 ──
+
+    private fun cycleColorMode() {
+        val modes = ColorMode.entries
+        colorMode = modes[(colorMode.ordinal + 1) % modes.size]
+        candidateLook = null
+        lookStreak = 0
+        if (colorMode == ColorMode.AUTO) {
+            // 讓下一幀的自動判斷立刻重套
+            appliedLook = ColorMode.OFF
+        } else {
+            applyLook(colorMode)
+        }
+        updateColorLabel()
+    }
+
+    /** AUTO 模式：暗 → 夜景；有人 → 人像；否則風景。連續 30 幀（約 1–2 秒）才切換，避免跳動。 */
+    private fun updateAutoLook(personsPresent: Boolean) {
+        if (colorMode != ColorMode.AUTO) return
+        val target = when {
+            lastLuma < 0.22f -> ColorMode.NIGHT
+            personsPresent -> ColorMode.PORTRAIT
+            else -> ColorMode.LANDSCAPE
+        }
+        if (target == appliedLook) {
+            candidateLook = null
+            lookStreak = 0
+            return
+        }
+        if (target == candidateLook) lookStreak++ else { candidateLook = target; lookStreak = 1 }
+        if (lookStreak >= 30) {
+            applyLook(target)
+            updateColorLabel()
+        }
+    }
+
+    private fun applyLook(look: ColorMode) {
+        appliedLook = look
+        media3Effect?.setEffects(ColorLooks.effectsFor(look))
+    }
+
+    private fun updateColorLabel() {
+        txtColorName.text = if (colorMode == ColorMode.AUTO) {
+            getString(R.string.color_auto_prefix) + getString(appliedLook.nameRes)
+        } else {
+            getString(colorMode.nameRes)
+        }
     }
 
     private fun cyclePose() {

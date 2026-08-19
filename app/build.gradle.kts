@@ -13,8 +13,8 @@ android {
         // 相簿存取才能不要任何儲存權限
         minSdk = 29
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.3.2"
+        versionCode = 6
+        versionName = "0.4.0"
 
         // MediaPipe 原生庫很肥，只留 arm64（近年 Android 手機都是）
         ndk {
@@ -48,4 +48,8 @@ dependencies {
 
     // 姿勢偵測（on-device，模型檔在 assets/pose_landmarker_lite.task）
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
+
+    // 色彩風格：CameraX + Media3 GPU 效果，同一組效果套在預覽與拍照輸出
+    implementation("androidx.camera.media3:media3-effect:1.0.0-alpha04")
+    implementation("androidx.media3:media3-effect:1.6.0")
 }
