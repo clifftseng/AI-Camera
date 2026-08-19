@@ -15,6 +15,11 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "0.2.0"
+
+        // MediaPipe 原生庫很肥，只留 arm64（近年 Android 手機都是）
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
