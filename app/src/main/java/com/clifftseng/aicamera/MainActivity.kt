@@ -66,6 +66,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     @Volatile
     private var lastLuma = 0.5f
 
+    @Volatile
+    private var lastStats: FrameStats? = null
+    private var appliedStats: FrameStats? = null
+    private var adaptCounter = 0
+
     // ── AI 取景建議（NIMA）──
     private lateinit var txtAiScore: TextView
     private var framingAdvisor: FramingAdvisor? = null
@@ -145,9 +150,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 runOnUiThread {
                     overlayView.setDetectedPose(landmarks, imgW, imgH)
                     updateAutoLook(landmarks.isNotEmpty())
+                    maybeReadapt()
                 }
             },
-            onLuma = { lastLuma = it },
+            onStats = {
+                lastStats = it
+                lastLuma = it.luma
+            },
         )
 
         // AI 取景建議：模型載入失敗（例如 assets 缺檔）就整組停用，App 照常運作
@@ -292,7 +301,26 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun applyLook(look: ColorMode) {
         appliedLook = look
-        media3Effect?.setEffects(ColorLooks.effectsFor(look))
+        appliedStats = lastStats
+        media3Effect?.setEffects(ColorLooks.effectsFor(look, lastStats))
+    }
+
+    /**
+     * 統計自適應的重套：畫面色彩「本質」變了（換場景、光線變化）才重算強度，
+     * 每 60 幀（約 2–4 秒）最多檢查一次，微小變化不動作，避免預覽閃爍。
+     */
+    private fun maybeReadapt() {
+        if (appliedLook == ColorMode.OFF || media3Effect == null) return
+        if (++adaptCounter < 60) return
+        adaptCounter = 0
+        val now = lastStats ?: return
+        val old = appliedStats
+        val changed = old == null ||
+            kotlin.math.abs(now.saturation - old.saturation) > 0.06f ||
+            kotlin.math.abs(now.contrast - old.contrast) > 0.04f ||
+            kotlin.math.abs(now.warmth - old.warmth) > 0.04f ||
+            kotlin.math.abs(now.luma - old.luma) > 0.08f
+        if (changed) applyLook(appliedLook)
     }
 
     private fun updateColorLabel() {
