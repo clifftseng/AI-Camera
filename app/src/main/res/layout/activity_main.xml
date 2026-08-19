@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 構圖輔助層：三分線 + 水平儀，之後的姿勢虛線也畫在這裡 -->
+    <com.clifftseng.aicamera.OverlayView
+        android:id="@+id/overlayView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <ImageButton
+        android:id="@+id/btnShutter"
+        android:layout_width="76dp"
+        android:layout_height="76dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="36dp"
+        android:background="@drawable/bg_shutter"
+        android:contentDescription="@string/btn_shutter" />
+
+    <ImageButton
+        android:id="@+id/btnSwitchCamera"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="32dp"
+        android:layout_marginBottom="48dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/btn_switch_camera"
+        android:src="@drawable/ic_switch_camera" />
+
+</FrameLayout>

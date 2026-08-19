@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Camera</string>
+    <string name="btn_shutter">拍照</string>
+    <string name="btn_switch_camera">切換前後鏡頭</string>
+    <string name="msg_saved">已儲存 ✓</string>
+    <string name="msg_save_failed">儲存失敗</string>
+    <string name="msg_need_camera_permission">需要相機權限才能使用，請到系統設定開啟</string>
+</resources>
