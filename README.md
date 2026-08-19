@@ -31,7 +31,7 @@
 # APK 產出於 app/build/outputs/apk/debug/
 ```
 
-最低支援 Android 8.0（API 26）。
+最低支援 Android 10（API 29）。
 
 ## License
 

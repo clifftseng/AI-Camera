@@ -9,11 +9,12 @@ android {
 
     defaultConfig {
         applicationId = "com.clifftseng.aicamera"
-        // minSdk 26：adaptive icon 不用出 PNG fallback；之後 MediaPipe/TFLite 也都夠用
-        minSdk = 26
+        // minSdk 29：MediaStore RELATIVE_PATH / loadThumbnail 都是 API 29 起，
+        // 相簿存取才能不要任何儲存權限
+        minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     buildTypes {
@@ -39,4 +40,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
+
+    // 姿勢偵測（on-device，模型檔在 assets/pose_landmarker_lite.task）
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 }

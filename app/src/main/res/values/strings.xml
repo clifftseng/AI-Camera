@@ -6,4 +6,11 @@
     <string name="msg_saved">已儲存 ✓</string>
     <string name="msg_save_failed">儲存失敗</string>
     <string name="msg_need_camera_permission">需要相機權限才能使用，請到系統設定開啟</string>
+    <string name="btn_gallery">開啟最新照片</string>
+    <string name="btn_pose">切換姿勢引導</string>
+    <string name="pose_off">姿勢引導：關</string>
+    <string name="pose_stand">自然站姿</string>
+    <string name="pose_hand_on_hip">單手叉腰</string>
+    <string name="pose_arms_up">雙手舉V</string>
+    <string name="pose_lean">側身斜倚</string>
 </resources>
